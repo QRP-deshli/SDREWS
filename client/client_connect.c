@@ -732,6 +732,8 @@ int main(int argc, char *argv[]) {
     }
     recover_mode = batch_mode;
 
+    int ok_count = 0, fail_count = 0;
+
     for (int run = 1; run <= batch_runs; run++) { 
         if (batch_mode) {
             char time_str[64];
@@ -739,10 +741,23 @@ int main(int argc, char *argv[]) {
             log_printf("\n=== TEST RUN %d/%d started at %s (Mode: %s) ===\n", run, batch_runs, time_str, mode);
         }
         if (try_session(ip, mode) != 0) {
+            fail_count++;
             error_log_printf("Test run %d completed with ERROR.\n\n", run);
             continue;
         }
+        ok_count++;
         log_printf("Test run %d completed SUCCESSFULLY.\n\n", run);
+    }
+
+    if (batch_mode) {
+        /* Summary: always on the console, and also in both log files. */
+        char summary[160];
+        snprintf(summary, sizeof(summary),
+                 "=== BATCH SUMMARY: %d runs | SUCCESS: %d | FAIL: %d (%.1f%% success) ===\n",
+                 batch_runs, ok_count, fail_count, 100.0 * ok_count / batch_runs);
+        printf("\n%s", summary);
+        if (success_file) { fputs(summary, success_file); fflush(success_file); }
+        if (error_file)   { fputs(summary, error_file);   fflush(error_file); }
     }
 #ifdef _WIN32
     WSACleanup();
