@@ -26,7 +26,7 @@ WRAP_SRC   = keywrap_tool.c $(SRC_DIR)/key_file.c $(SRC_DIR)/keywrap.c \
              $(SRC_DIR)/argon2id.c $(SRC_DIR)/platform.c $(SRC_DIR)/config.c $(A2_SRC)
 
 ifeq ($(OS),Windows_NT)
-    CC      ?= gcc
+    CC       = gcc
     LIBS     = -lws2_32 -ladvapi32
     LDFLAGS  = -static
     EXE      = .exe
