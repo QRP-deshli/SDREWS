@@ -334,6 +334,12 @@ bool proc_frame(uint8_t sk, frame_t *rx, frame_t *tx, sess_t *s)
             async_print("Port 443 switched to HTTPS for IP %d.%d.%d.%d\n", s->ip[0], s->ip[1], s->ip[2], s->ip[3]);
             return true; 
         }
+        // 3b. "probe": used by the client's "basic" test mode. Handled exactly
+        //     like "web" (plain ACK from the common tail below, no DATA frame
+        //     afterwards) but port 443 is NOT switched to HTTPS.
+        else if (rx->len >= 5 && strncmp((char*)rx->data, "probe", 5) == 0) {
+            /* intentionally empty: fall through to the common ACK */
+        }
         // 4. ANY OTHER MESSAGE PAYLOAD (Acknowledge cleanly without sending data strings)
         else {
             s->streaming_history = false;
