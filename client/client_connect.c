@@ -7,6 +7,8 @@
 // Usage: client_connect <IP> <basic|stats|web> [batch_runs]
 //   web   : keeps retrying (new connection every time) until the server accepts
 //           the "web" command, then tells you to open the browser.
+//   basic : identical session to web but sends "probe" (no HTTPS switch); runs
+//           exactly [batch_runs] attempts and prints the success rate.
 // The master key is read from master_key.enc (PIN-protected, see keywrap).
 
 #include <stdio.h>
@@ -476,10 +478,16 @@ static void run_session(char *ip, const char *mode) {
     // ==========================================
     // DYNAMIC MODE BRANCHING (web | stats | basic)
     // ==========================================
-    if (strcmp(mode, "web") == 0) {
+    if (strcmp(mode, "web") == 0 || strcmp(mode, "basic") == 0) {
 
-        log_printf("Sending 'web' signal to trigger HTTPS mode...\n");
-        send_data_msg(sockfd, "web");
+        /* "basic" is byte-for-byte the same exchange as "web" (one command,
+         * one reply, close). The only difference is the command word: the
+         * server answers "probe" exactly like "web" but does NOT switch
+         * port 443 to HTTPS. */
+        bool is_web = (strcmp(mode, "web") == 0);
+        log_printf(is_web ? "Sending 'web' signal to trigger HTTPS mode...\n"
+                          : "Sending 'probe' signal (no HTTPS switch)...\n");
+        send_data_msg(sockfd, is_web ? "web" : "probe");
 
         rx_header(sockfd, &rx, "Failed to read transition ACK header");
         verify_rx(sockfd, &rx); 
@@ -490,7 +498,8 @@ static void run_session(char *ip, const char *mode) {
             handle_error(ERROR_PROTOCOL, "Unexpected response from server");
         }
 
-        log_printf("Transition signal accepted. The server is now switching to HTTPS.\n");
+        log_printf(is_web ? "Transition signal accepted. The server is now switching to HTTPS.\n"
+                          : "Probe accepted by the server.\n");
         log_printf("Closing custom protocol connection...\n");
 
     } else if (strcmp(mode, "stats") == 0) {
@@ -536,21 +545,7 @@ static void run_session(char *ip, const char *mode) {
         send_ctrl(sockfd, CMD_CLOSE);
 
     } else {
-        
-        // --- BASIC MODE ---
-        send_data_msg(sockfd, "stats");
-        rx_header(sockfd, &rx, "Failed to read DATA ACK header");
-        verify_rx(sockfd, &rx);
-        if (rx.cmd != CMD_ACK) handle_error(ERROR_PROTOCOL, "DATA ACK invalid");
-        log_printf("Initial DATA ACK received\n");
-
-        rx_header(sockfd, &rx, "Failed to read server hi message");
-        verify_rx(sockfd, &rx);
-        if (rx.cmd != CMD_DATA) handle_error(ERROR_PROTOCOL, "Expected server DATA");
-        log_printf("Server says: %.*s\n", rx.len, rx.data);
-        send_ctrl(sockfd, CMD_ACK);
-        
-        send_ctrl(sockfd, CMD_CLOSE);
+        handle_error(ERROR_PROTOCOL, "Unknown mode");
     }
 
     // === GRACEFUL SHUTDOWN ===
@@ -675,6 +670,37 @@ static int web_loop(char *ip) {
 }
 
 /* ============================================================
+ * "basic" MODE: same session as "web" (no HTTPS switch), fixed number of
+ * attempts, live status line, success rate at the end
+ * ============================================================ */
+static int basic_loop(char *ip, int runs) {
+    int ok_count = 0, fail_count = 0;
+
+    recover_mode = true;
+    g_verbose = false;
+    printf("Running %d test attempts against %s (Ctrl+C to stop)...\n", runs, ip);
+
+    for (int attempt = 1; attempt <= runs; attempt++) {
+        if (try_session(ip, "basic") == 0) {
+            ok_count++;
+        } else {
+            fail_count++;
+        }
+        printf("\r  attempt %d/%d | success %d | fail %d | last error: %-50.50s",
+               attempt, runs, ok_count, fail_count, last_err);
+        fflush(stdout);
+        if (attempt < runs) {
+            plat_sleep_ms(WEB_RETRY_DELAY_MIN_MS + (unsigned)(rand() % (WEB_RETRY_DELAY_JITTER_MS + 1)));
+        }
+    }
+
+    g_verbose = true;
+    printf("\n\n=== RESULT: %d attempts | SUCCESS: %d | FAIL: %d | success rate: %.1f%% ===\n",
+           runs, ok_count, fail_count, 100.0 * ok_count / runs);
+    return 0;
+}
+
+/* ============================================================
  * MAIN
  * ============================================================ */
 int main(int argc, char *argv[]) {
@@ -685,7 +711,9 @@ int main(int argc, char *argv[]) {
     
     if (argc < 3 || argv[1][0] == '\0') { 
         printf("Usage: %s <IP> <basic|stats|web> [batch_runs]\n", argv[0]);
-        printf("  web : keep retrying until the server opens the HTTPS window\n");
+        printf("  web   : keep retrying until the server opens the HTTPS window\n");
+        printf("  basic : same as web but without the HTTPS switch; runs [batch_runs]\n");
+        printf("          attempts (asked at start if omitted), then prints the success rate\n");
         printf("Master key is read from %s (PIN asked at start; create it with keywrap).\n", KEY_FILE_DEFAULT);
         printf("Set %s to use another file.\n", KEY_FILE_ENV);
         return 0;
@@ -702,6 +730,26 @@ int main(int argc, char *argv[]) {
     strncpy(mode, argv[2], sizeof(mode) - 1);
     mode[sizeof(mode) - 1] = '\0';
 
+    if (strcmp(mode, "web") != 0 && strcmp(mode, "basic") != 0 && strcmp(mode, "stats") != 0) {
+        printf("Unknown mode '%s'. Use basic, stats or web.\n", mode);
+        return 0;
+    }
+
+    int basic_runs = 0;
+    if (strcmp(mode, "basic") == 0) {
+        if (argc >= 4) {
+            basic_runs = atoi(argv[3]);
+        } else {
+            char line[32];
+            printf("How many attempts? ");
+            fflush(stdout);
+            if (fgets(line, sizeof(line), stdin)) basic_runs = atoi(line);
+        }
+        if (basic_runs < 1) {
+            exit_with_error(ERROR_GETTING_INPUT, "Number of attempts must be 1 or more");
+        }
+    }
+
     load_master_key();
     init_sock();
 
@@ -713,7 +761,15 @@ int main(int argc, char *argv[]) {
         return rc == 0 ? 0 : ERROR_CLIENT_CONNECTION;
     }
 
-    /* BATCH SETUP */
+    if (strcmp(mode, "basic") == 0) {
+        int rc = basic_loop(ip, basic_runs);
+#ifdef _WIN32
+        WSACleanup();
+#endif
+        return rc;
+    }
+
+    /* BATCH SETUP (stats mode) */
     batch_mode = false;
     batch_runs = 1;
     if (argc >= 4) {                   
