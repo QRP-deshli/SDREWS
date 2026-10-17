@@ -336,9 +336,11 @@ cd WIZnet-PICO-C
 git submodule update --init --recursive      # fetches libraries/mbedtls (use v3.6.0)
 ```
 
-Copy this repository's `server/` folder into the tree's `examples/` directory (so it is two levels below the tree root) and register it like the other examples in `examples/CMakeLists.txt`.
+Place this repository's `server/` folder inside the SDK's `examples/` directory (for example as `WIZnet-PICO-C/examples/sdrews/`; the folder name does not matter, the CMake target is `sdrews`). If your SDK version needs an `add_subdirectory(...)` line for it in `examples/CMakeLists.txt`, add it exactly as for the other examples.
 
-`server/CMakeLists.txt` expects this layout, because it uses:
+Only `server/` goes into the SDK. `client/` and `key_provision/` are built from this repository on their own (see below).
+
+`server/CMakeLists.txt` expects the folder to sit two levels below the tree root (`examples/<folder>/`), because it uses:
 
 * `../../libraries/mbedtls` — the Mbed TLS sources
 * `../../port/mbedtls` — the WIZnet-provided TLS configuration (contains `ssl_config.h`)
@@ -386,13 +388,16 @@ See [Provisioning a board](#provisioning-a-board). The public certificate (`keys
 
 ### 4. Build the server firmware
 
+Build from the **root of the WIZnet SDK tree**, not from this repository:
+
 ```bash
+cd WIZnet-PICO-C
 mkdir build && cd build
 cmake .. -DPICO_BOARD=pico2 -DPICO_SDK_PATH=<path to pico-sdk>
 ninja sdrews
 ```
 
-The resulting file is `sdrews.uf2`. Hold **BOOTSEL**, plug the board in, and copy the `.uf2` to the USB drive.
+The resulting `sdrews.uf2` is written inside the build tree, under the output folder of the example. Hold **BOOTSEL**, plug the board in, and copy the `.uf2` to the USB drive.
 
 ### 5. Build the client
 
