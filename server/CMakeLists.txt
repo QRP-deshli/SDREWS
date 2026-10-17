@@ -1,6 +1,6 @@
 
 # Define the target name for the executable
-set(TARGET_NAME slehs_otp)
+set(TARGET_NAME sdrews)
 
 
 # Path to mbedTLS inside libraries/
@@ -12,7 +12,7 @@ set(MBEDTLS_PORT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../port/mbedtls)
 
 # Add all .c files from the project folder, including client_mbed.c
 file(GLOB SRC_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/slehs_otp.c 
+    ${CMAKE_CURRENT_SOURCE_DIR}/sdrews.c 
     ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c 
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sensor/*.c 
 )
